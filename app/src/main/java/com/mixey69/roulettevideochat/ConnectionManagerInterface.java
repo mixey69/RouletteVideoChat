@@ -1,4 +1,4 @@
-package com.tokbox.android.tutorials.basicvideochat;
+package com.mixey69.roulettevideochat;
 
 import com.opentok.android.OpentokError;
 import com.opentok.android.PublisherKit;

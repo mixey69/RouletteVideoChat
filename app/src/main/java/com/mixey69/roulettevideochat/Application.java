@@ -1,4 +1,4 @@
-package com.tokbox.android.tutorials.basicvideochat;
+package com.mixey69.roulettevideochat;
 
 
 public class Application extends android.app.Application {

@@ -1,4 +1,4 @@
-package com.tokbox.android.tutorials.basicvideochat;
+package com.mixey69.roulettevideochat;
 
 import android.Manifest;
 import android.content.Context;
