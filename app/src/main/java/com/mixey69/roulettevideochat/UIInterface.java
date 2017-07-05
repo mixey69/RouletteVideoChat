@@ -22,5 +22,4 @@ import com.opentok.android.Subscriber;
     void showWebServiceCoordinatorError(Exception error);
 
     Context getContext();
-
 }

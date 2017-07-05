@@ -22,7 +22,10 @@ import io.reactivex.schedulers.Schedulers;
 
 
 class ConnectionManager implements
-        ConnectionManagerInterface {
+        ConnectionManagerInterface,
+        WebServiceCoordinator.Listener,
+        Session.SessionListener,
+        PublisherKit.PublisherListener {
 
     private static final String LOG_TAG = ConnectionManager.class.getSimpleName();
 
@@ -50,8 +53,9 @@ class ConnectionManager implements
 
     //ConnectionManager entry point
     @Override
-    public void startWebServiceCoordinator() {
-        mContext = uiInterface.getContext();
+    public void init(UIInterface uiInterface) {
+        this.uiInterface = uiInterface;
+        mContext = this.uiInterface.getContext();
         mWebServiceCoordinator = new WebServiceCoordinator(mContext, this);
         mWebServiceCoordinator.fetchSessionConnectionData(
                 mContext.getResources().getString(R.string.SESSION_INFO_ENDPOINT));
@@ -72,8 +76,9 @@ class ConnectionManager implements
     }
 
     @Override
-    public void getUIInterface(UIInterface uiInterface) {
-        this.uiInterface = uiInterface;
+    public void dropUIInterface() {
+        clearLastSessionData();
+        this.uiInterface = null;
     }
 
     @Override
@@ -90,10 +95,19 @@ class ConnectionManager implements
         }
         if (mSession != null) {
             mSession.disconnect();
+            mSession = null;
         }
+
+        if (mSubscription != null) {
+            mSubscription.dispose();
+        }
+
         wasOnStreamReceivedCalled = false;
-        uiInterface.clearSubscriberView();
-        uiInterface.clearPublisherView();
+
+        if (uiInterface != null) {
+            uiInterface.clearSubscriberView();
+            uiInterface.clearPublisherView();
+        }
     }
 
     /* SessionListener methods */
@@ -102,25 +116,23 @@ class ConnectionManager implements
     public void onConnected(Session session) {
         Log.d(LOG_TAG, "onConnected: Connected to session: " + session.getSessionId());
 
-        //deleting publisher that's left from last call
-
-        if (mPublisher != null) {
-            uiInterface.clearPublisherView();
-            mPublisher.destroy();
-            mPublisher = null;
+        if (uiInterface == null) {
+            return;
         }
 
         //recreating publisher
 
         mPublisher = new Publisher.Builder(mContext).build();
         mPublisher.setPublisherListener(this);
-        uiInterface.showPublisher(mPublisher);
+        if (uiInterface != null) {
+            uiInterface.showPublisher(mPublisher);
+        }
         mSession.publish(mPublisher);
 
         /*
         if server tells client that there's someone in the room(!isRoomToConnectEmpty),
         but we receive no stream in 500ms,
-        we clear session data leaving only publisher to show in UI, and requesting another session
+        we clear session data  and request another session
          */
 
 
@@ -137,28 +149,16 @@ class ConnectionManager implements
                         public void accept(@io.reactivex.annotations.NonNull Long aLong) throws Exception {
                             if (!wasOnStreamReceivedCalled) {
 
-                                //clearing all data except for publisher
+                                //clearing all data
 
-                                if (mSubscriber != null) {
-                                    mSession.unsubscribe(mSubscriber);
-                                    mSubscriber.destroy();
-                                    mSubscriber = null;
-                                }
-                                if (mSession != null) {
-                                    if (mPublisher != null) {
-                                        mSession.unpublish(mPublisher);
-                                    }
-                                    mSession.disconnect();
-                                }
-                                uiInterface.clearSubscriberView();
-                                if (mSubscription != null) {
-                                    mSubscription.dispose();
-                                }
+                                clearLastSessionData();
 
-                                //and getting a new session where we'll be alone and waiting
+                                //and getting a new session where we'll be alone and waiting if UI is still being shown
 
-                                mWebServiceCoordinator.fetchSessionConnectionData(
-                                        mContext.getResources().getString(R.string.SESSION_INFO_ENDPOINT));
+                                if (uiInterface != null) {
+                                    mWebServiceCoordinator.fetchSessionConnectionData(
+                                            mContext.getResources().getString(R.string.SESSION_INFO_ENDPOINT));
+                                }
                             }
                         }
                     });
@@ -174,44 +174,42 @@ class ConnectionManager implements
     @Override
     public void onStreamReceived(Session session, Stream stream) {
 
-        //telling observable that the session is not empty and we won't need another one
-
+        //telling timeout consumer that the session is not empty and we won't need another one
         wasOnStreamReceivedCalled = true;
 
         Log.d(LOG_TAG, "onStreamReceived: New Stream Received " + stream.getStreamId() + " in session: " + session.getSessionId());
 
         //creating subscriber object and telling UI to show it
-
-        if (mSubscriber == null) {
-            mSubscriber = new Subscriber.Builder(mContext, stream).build();
-            mSession.subscribe(mSubscriber);
-            uiInterface.showSubscriber(mSubscriber);
-        } else {
-            mSession.unsubscribe(mSubscriber);
-            mSubscriber.destroy();
-            mSubscriber = null;
+        if (uiInterface != null) {
             mSubscriber = new Subscriber.Builder(mContext, stream).build();
             mSession.subscribe(mSubscriber);
             uiInterface.showSubscriber(mSubscriber);
         }
-    }
 
+    }
 
     //if subscriber stopped streaming we're leaving the session and requesting another one
     @Override
     public void onStreamDropped(Session session, Stream stream) {
-        clearLastSessionData();
-        mWebServiceCoordinator.fetchSessionConnectionData(
-                mContext.getResources().getString(R.string.SESSION_INFO_ENDPOINT));
 
+        clearLastSessionData();
+
+        if (uiInterface != null) {
+            mWebServiceCoordinator.fetchSessionConnectionData(
+                    mContext.getResources().getString(R.string.SESSION_INFO_ENDPOINT));
+        }
     }
 
     @Override
     public void onError(Session session, OpentokError opentokError) {
         Log.e(LOG_TAG, "onError: " + opentokError.getErrorDomain() + " : " +
                 opentokError.getErrorCode() + " - " + opentokError.getMessage() + " in session: " + session.getSessionId());
-
-        uiInterface.showOpenTokErrorMessage(opentokError);
+        // UnknownSubscriberInstance error is not critical so ignore it
+        if (!(opentokError.getErrorCode() == OpentokError.ErrorCode.UnknownSubscriberInstance)) {
+            if (uiInterface != null) {
+                uiInterface.showOpenTokErrorMessage(opentokError);
+            }
+        }
     }
 
     /* PublisherListener methods */
@@ -230,7 +228,9 @@ class ConnectionManager implements
     public void onError(PublisherKit publisherKit, OpentokError opentokError) {
         Log.e(LOG_TAG, "onError: " + opentokError.getErrorDomain() + " : " +
                 opentokError.getErrorCode() + " - " + opentokError.getMessage());
-        uiInterface.showOpenTokErrorMessage(opentokError);
+        if (uiInterface != null) {
+            uiInterface.showOpenTokErrorMessage(opentokError);
+        }
     }
 
     /* WebServiceCoordinatorListener methods*/
@@ -246,11 +246,13 @@ class ConnectionManager implements
     @Override
     public void onWebServiceCoordinatorError(Exception error) {
         Log.e(LOG_TAG, "Web Service error: " + error.getMessage());
-        uiInterface.showWebServiceCoordinatorError(error);
+        if (uiInterface != null) {
+            uiInterface.showWebServiceCoordinatorError(error);
+        }
     }
 
     private void initializeSession(String apiKey, String sessionId, String token) {
-
+        clearLastSessionData();
         mSession = new Session.Builder(mContext, apiKey, sessionId).build();
         mSession.setSessionListener(this);
         mSession.connect(token);

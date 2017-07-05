@@ -53,7 +53,6 @@ public class MainActivity extends AppCompatActivity
         //Getting interfaces for MainActivity and ConnectionManager interactions
 
         Application.getInstance().getInjectionComponent().inject(this);
-        mConnectionManager.getUIInterface(this);
 
         requestPermissions();
     }
@@ -67,7 +66,7 @@ public class MainActivity extends AppCompatActivity
 
         super.onStart();
 
-        mConnectionManager.startWebServiceCoordinator();
+        mConnectionManager.init(this);
 
     }
 
@@ -100,7 +99,7 @@ public class MainActivity extends AppCompatActivity
 
         super.onStop();
 
-        mConnectionManager.clearLastSessionData();
+        mConnectionManager.dropUIInterface();
     }
 
     /* UIInterface methods */
