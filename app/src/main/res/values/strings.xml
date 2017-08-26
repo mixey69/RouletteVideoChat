@@ -11,7 +11,7 @@
     <string name="setting">Settings</string>
     <string name="cancel">Cancel</string>
 
-    <string name="API_KEY">45904292</string>
+    <string name="API_KEY">45946712/string>
     <string name="SESSION_INFO_ENDPOINT">https://roulette-video-chat-server.herokuapp.com/connect</string>
 
 </resources>
